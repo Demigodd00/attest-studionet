@@ -1,6 +1,7 @@
 """Financial and evidence-consensus regressions for ATTEST."""
 
 import json
+import sys
 from datetime import datetime, timezone
 
 import pytest
@@ -18,7 +19,11 @@ def address(account):
 
 
 def warp(vm, timestamp):
-    vm.warp(datetime.fromtimestamp(timestamp, timezone.utc).isoformat())
+    value = datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
+    vm.warp(value)
+    gl = sys.modules.get("genlayer.gl")
+    actual = getattr(gl, "message_raw", {}).get("datetime")
+    assert actual == value, f"direct VM clock did not reach GenLayer: expected {value}, got {actual}"
 
 
 def review_deadline(contract, claim_id):
