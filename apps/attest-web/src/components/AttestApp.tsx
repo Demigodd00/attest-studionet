@@ -9,6 +9,7 @@ import {
   getCredit,
   getPendingTransaction,
   getStats,
+  getWalletDeposits,
   listClaims,
   parseGen,
   reconcilePendingTransaction,
@@ -21,6 +22,7 @@ import {
   type Provider,
   type PendingTransaction,
   type WalletSession,
+  type WalletDeposit,
 } from "@/lib/attest";
 
 declare global {
@@ -545,6 +547,8 @@ export default function AttestApp() {
   const [pending, setPending] = useState<PendingTransaction | null>(null);
   const [credit, setCredit] = useState("0");
   const [creditStatus, setCreditStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [deposits, setDeposits] = useState<WalletDeposit[]>([]);
+  const [depositStatus, setDepositStatus] = useState<"loading" | "ready" | "error">("loading");
   const [activeTab, setActiveTab] = useState("All claims");
   const [lookupId, setLookupId] = useState("");
   const [selectedId, setSelectedId] = useState("");
@@ -573,6 +577,27 @@ export default function AttestApp() {
       session.provider.removeListener?.("chainChanged", clearSession);
     };
   }, [session]);
+
+  useEffect(() => {
+    if (!session || !CONTRACT_READY || (!pending && !deposits.some((item) => item.outcome === "pending" || item.outcome === "unknown"))) return;
+    let active = true;
+    const timer = window.setInterval(async () => {
+      try {
+        const result = pending ? await reconcilePendingTransaction(session) : null;
+        const [value, items] = await Promise.all([getCredit(session.address as Address), getWalletDeposits(session.address as Address)]);
+        if (!active) return;
+        setPending(getPendingTransaction(session.address));
+        setCredit(value);
+        setCreditStatus("ready");
+        setDeposits(items);
+        setDepositStatus("ready");
+        if (result?.done) setNotice({ tone: result.successful ? "success" : "error", text: result.message, hash: result.hash });
+      } catch (reason) {
+        if (active) setError(reason instanceof Error ? reason.message : "Could not update wallet activity.");
+      }
+    }, 20000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [session, pending, deposits]);
 
   useEffect(() => {
     if (!CONTRACT_READY) return;
@@ -616,11 +641,14 @@ export default function AttestApp() {
     if (!session || !CONTRACT_READY) {
       setCredit("0");
       setCreditStatus("loading");
+      setDeposits([]);
+      setDepositStatus("loading");
       setPending(null);
       return;
     }
     let active = true;
     setCreditStatus("loading");
+    setDepositStatus("loading");
     getCredit(session.address as Address).then((value) => {
       if (active) {
         setCredit(value);
@@ -632,8 +660,39 @@ export default function AttestApp() {
         setError(reason instanceof Error ? reason.message : "Could not read available GEN credit.");
       }
     });
-    try { setPending(getPendingTransaction(session.address)); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Could not read the saved transaction."); }
+    getWalletDeposits(session.address as Address).then((items) => {
+      if (active) {
+        setDeposits(items);
+        setDepositStatus("ready");
+      }
+    }).catch((reason: unknown) => {
+      if (active) {
+        setDepositStatus("error");
+        setError(reason instanceof Error ? reason.message : "Could not read wallet deposit history.");
+      }
+    });
+    try {
+      const saved = getPendingTransaction(session.address);
+      setPending(saved);
+      if (saved) {
+        reconcilePendingTransaction(session).then(async (result) => {
+          if (!active) return;
+          setPending(getPendingTransaction(session.address));
+          setNotice({ tone: result.successful ? "success" : result.done ? "error" : "pending", text: result.message, hash: result.hash });
+          if (result.done) {
+            const [value, items] = await Promise.all([getCredit(session.address as Address), getWalletDeposits(session.address as Address)]);
+            if (active) {
+              setCredit(value);
+              setCreditStatus("ready");
+              setDeposits(items);
+              setDepositStatus("ready");
+            }
+          }
+        }).catch((reason: unknown) => {
+          if (active) setNotice({ tone: "pending", text: reason instanceof Error ? reason.message : "Could not check the saved transaction. Its outcome is still unknown." });
+        });
+      }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not read the saved transaction."); }
     return () => { active = false; };
   }, [session]);
 
@@ -672,21 +731,50 @@ export default function AttestApp() {
     if (session) {
       setCredit(await getCredit(session.address as Address));
       setCreditStatus("ready");
+      try {
+        setDeposits(await getWalletDeposits(session.address as Address));
+        setDepositStatus("ready");
+      } catch {
+        setDepositStatus("error");
+      }
     }
   }
 
-  async function refreshCredit() {
+  async function refreshWalletStatus() {
     if (!session) return;
     setBusy(true);
     setCreditStatus("loading");
+    setDepositStatus("loading");
     try {
-      setCredit(await getCredit(session.address as Address));
-      setCreditStatus("ready");
-      setError("");
-      setNotice({ tone: "success", text: "Available credit refreshed from finalized StudioNet state." });
+      const saved = getPendingTransaction(session.address);
+      const [reconciled, balance, activity] = await Promise.allSettled([
+        saved ? reconcilePendingTransaction(session) : Promise.resolve(null),
+        getCredit(session.address as Address),
+        getWalletDeposits(session.address as Address),
+      ]);
+      setPending(getPendingTransaction(session.address));
+      if (balance.status === "fulfilled") {
+        setCredit(balance.value);
+        setCreditStatus("ready");
+      } else setCreditStatus("error");
+      if (activity.status === "fulfilled") {
+        setDeposits(activity.value);
+        setDepositStatus("ready");
+      } else setDepositStatus("error");
+      const errors = [balance, activity].filter((item) => item.status === "rejected").map((item) => item.reason instanceof Error ? item.reason.message : "Wallet status could not be read.");
+      setError(errors.join(" "));
+      if (reconciled.status === "fulfilled" && reconciled.value) {
+        const result = reconciled.value;
+        setNotice({ tone: result.successful ? "success" : result.done ? "error" : "pending", text: result.message, hash: result.hash });
+      } else if (reconciled.status === "rejected") {
+        setNotice({ tone: "pending", text: "Saved transaction outcome is still unknown. The app will retry automatically." });
+      } else if (!errors.length) {
+        setNotice({ tone: "success", text: "Wallet credit and deposit history refreshed from StudioNet." });
+      }
     } catch (reason) {
       setCreditStatus("error");
-      setError(reason instanceof Error ? reason.message : "Could not refresh available GEN credit.");
+      setDepositStatus("error");
+      setError(reason instanceof Error ? reason.message : "Could not refresh wallet status.");
     } finally {
       setBusy(false);
     }
@@ -724,21 +812,6 @@ export default function AttestApp() {
       setError(reason instanceof Error ? reason.message : "Claim not found.");
     } finally {
       setDetailLoading(false);
-    }
-  }
-
-  async function checkPending() {
-    if (!session) return;
-    setBusy(true);
-    try {
-      const result = await reconcilePendingTransaction(session);
-      setPending(getPendingTransaction(session.address));
-      setNotice({ tone: result.successful ? "success" : result.done ? "error" : "pending", text: result.message, hash: result.hash });
-      if (result.done) await refreshContract();
-    } catch (reason) {
-      setNotice({ tone: "pending", text: reason instanceof Error ? reason.message : "Could not check finality. The saved transaction remains blocked." });
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -805,6 +878,12 @@ export default function AttestApp() {
     if (!session) throw new Error("Connect your wallet before adding GEN credit.");
     if (creditStatus !== "ready") throw new Error("Check your available contract credit before adding more GEN.");
     if (amount <= 0n) throw new Error("Enter an amount greater than zero.");
+    const recentDeposits = await getWalletDeposits(session.address);
+    setDeposits(recentDeposits);
+    setDepositStatus("ready");
+    if (recentDeposits.some((item) => item.outcome === "pending" || item.outcome === "unknown")) {
+      throw new Error("A deposit from this wallet is still pending or unverified. Wait for wallet status to update before adding more GEN.");
+    }
     await transaction("Adding recoverable GEN credit", "deposit", [], amount);
     setCredit(await getCredit(session.address));
   }
@@ -867,7 +946,6 @@ export default function AttestApp() {
             <a href="#protocol">Protocol</a>
           </nav>
           <div className="wallet-actions">
-            {pending ? <button className="credit-button" type="button" onClick={() => void checkPending()} disabled={busy}>Check pending transaction ↗</button> : null}
             <button className={"wallet-button " + (session ? "wallet-connected" : "")} type="button" onClick={() => void connect()}>
               <span className="wallet-indicator" />{session ? shortenAddress(session.address) : "Connect wallet"}
             </button>
@@ -884,8 +962,25 @@ export default function AttestApp() {
         {session && CONTRACT_READY ? (
           <div className="account-credit" aria-label="Wallet credit">
             <span>Available contract credit <strong>{creditStatus === "ready" ? formatGen(credit, 18) + " GEN" : creditStatus === "loading" ? "Checking StudioNet…" : "Unavailable"}</strong></span>
-            <button type="button" onClick={() => void refreshCredit()} disabled={busy}>Refresh credit ↻</button>
+            <button type="button" onClick={() => void refreshWalletStatus()} disabled={busy}>Refresh wallet status ↻</button>
             {creditStatus === "ready" && BigInt(credit || "0") > 0n ? <button type="button" onClick={() => void withdraw()} disabled={busy}>Withdraw credit ↗</button> : null}
+          </div>
+        ) : null}
+
+        {session && CONTRACT_READY ? (
+          <div className="deposit-history" aria-label="Wallet deposit history" aria-live="polite">
+            <div className="deposit-history-heading"><strong>Deposits from this wallet</strong><span>{pending ? "Checking saved transaction automatically" : "Found by wallet address on StudioNet"}</span></div>
+            {depositStatus === "loading" ? <p>Checking wallet activity…</p> :
+              depositStatus === "error" ? <p>Deposit history is unavailable. Refresh wallet status to retry; the credit balance above is a separate contract read.</p> :
+              deposits.length === 0 ? <p>No ATTEST deposits found for this wallet.</p> :
+              <ul>{deposits.slice(0, 5).map((item) => (
+                <li key={item.hash}>
+                  <span>{item.amountAtto ? formatGen(item.amountAtto, 18) + " GEN" : "Amount unavailable"}</span>
+                  <strong>{item.outcome === "credited" ? "Deposit succeeded" : item.outcome === "failed" ? "Deposit failed" : item.outcome === "pending" ? "Still processing" : "Outcome unavailable"}</strong>
+                  <a href={"https://explorer-studio.genlayer.com/tx/" + item.hash} target="_blank" rel="noreferrer">{shortenAddress(item.hash)} ↗</a>
+                </li>
+              ))}</ul>}
+            {depositStatus === "ready" && deposits.some((item) => item.outcome === "credited") && creditStatus === "ready" && BigInt(credit || "0") === 0n ? <p>A past deposit succeeded. Current credit can be zero after a bond was posted or credit was withdrawn.</p> : null}
           </div>
         ) : null}
 

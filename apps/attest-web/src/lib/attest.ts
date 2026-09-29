@@ -104,6 +104,14 @@ export interface PendingTransaction {
   submittedAt: number;
 }
 
+export interface WalletDeposit {
+  hash: string;
+  amountAtto: string | null;
+  status: string;
+  outcome: "credited" | "failed" | "pending" | "unknown";
+  createdAt: string;
+}
+
 function pendingKey(address: Address): string {
   return "attest:pending:61999:" + CONTRACT_ADDRESS.toLowerCase() + ":" + address.toLowerCase();
 }
@@ -246,6 +254,59 @@ export async function getCredit(address: Address): Promise<string> {
   })) as string;
 }
 
+export function depositHistoryCandidates(history: unknown, address: Address, contractAddressValue: Address): { hash: string; createdAt: string }[] {
+  if (!Array.isArray(history)) throw new Error("StudioNet returned invalid wallet activity.");
+  const sender = address.toLowerCase();
+  const contract = contractAddressValue.toLowerCase();
+  const seen = new Set<string>();
+  return history.filter((entry) => {
+    const row = object(entry);
+    const hash = row.hash;
+    const value = row.value;
+    const positive = typeof value === "bigint" ? value > 0n :
+      typeof value === "number" ? Number.isFinite(value) && value > 0 :
+      typeof value === "string" && /^\d+$/.test(value) && BigInt(value) > 0n;
+    if (typeof hash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(hash) ||
+      String(row.from_address ?? "").toLowerCase() !== sender ||
+      String(row.to_address ?? "").toLowerCase() !== contract || !positive || seen.has(hash.toLowerCase())) return false;
+    seen.add(hash.toLowerCase());
+    return true;
+  }).map((entry) => {
+    const row = object(entry);
+    return { hash: String(row.hash), createdAt: typeof row.created_at === "string" ? row.created_at : "" };
+  }).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 20);
+}
+
+export async function getWalletDeposits(address: Address): Promise<WalletDeposit[]> {
+  const history = await readClient.request({ method: "sim_getTransactionsForAddress", params: [address as never] });
+  const candidates = depositHistoryCandidates(history, address, contractAddress());
+  return Promise.all(candidates.map(async ({ hash, createdAt }): Promise<WalletDeposit> => {
+    try {
+      const receipt = await readClient.getTransaction({ hash: hash as never });
+      const tx = object(receipt);
+      if (String(tx.sender ?? tx.from_address ?? "").toLowerCase() !== address.toLowerCase() ||
+        String(tx.to_address ?? tx.to ?? "").toLowerCase() !== contractAddress().toLowerCase()) {
+        throw new Error("Transaction does not match the connected wallet and ATTEST contract.");
+      }
+      const amount = tx.value;
+      const amountAtto = typeof amount === "bigint" || typeof amount === "string" ? String(amount) : null;
+      const status = transactionStatus(receipt);
+      if (status !== TransactionStatus.FINALIZED) {
+        const outcome = status === "CANCELED" || status === "CANCELLED" || status === "UNDETERMINED" ? "failed" : status ? "pending" : "unknown";
+        return { hash, amountAtto, status, outcome, createdAt };
+      }
+      try {
+        assertSuccessfulExecution(receipt);
+        return { hash, amountAtto, status, outcome: "credited", createdAt };
+      } catch {
+        return { hash, amountAtto, status, outcome: "failed", createdAt };
+      }
+    } catch {
+      return { hash, amountAtto: null, status: "UNKNOWN", outcome: "unknown", createdAt };
+    }
+  }));
+}
+
 export async function writeContract(
   session: WalletSession,
   functionName: string,
@@ -260,6 +321,14 @@ export async function writeContract(
     if (!lock) throw new Error("Another tab is sending a transaction from this wallet.");
     if (getPendingTransaction(session.address)) {
       throw new Error("This wallet has a saved transaction. Check its outcome before submitting another.");
+    }
+    const storageProbe = pendingKey(session.address) + ":probe";
+    try {
+      window.localStorage.setItem(storageProbe, "1");
+      if (window.localStorage.getItem(storageProbe) !== "1") throw new Error("Browser storage is unavailable.");
+      window.localStorage.removeItem(storageProbe);
+    } catch {
+      throw new Error("Enable browser storage before signing so ATTEST can recover the transaction after a page reload.");
     }
     const hash = await session.client.writeContract({
       address: contractAddress() as never,

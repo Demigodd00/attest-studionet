@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assertSuccessfulExecution, transactionStatus } from "../src/lib/attest.ts";
+import { assertSuccessfulExecution, depositHistoryCandidates, transactionStatus } from "../src/lib/attest.ts";
 
 const successfulExecution = {
   consensus_data: {
@@ -36,4 +36,20 @@ test("rejects a finalized transaction whose contract execution failed", () => {
     consensus_data: { leader_receipt: [{ execution_result: "ERROR", result: { status: "rollback", payload: "Rejected" } }] },
   };
   assert.throws(() => assertSuccessfulExecution(receipt), /Rejected/);
+});
+
+test("finds deposits by wallet and contract without a supplied transaction hash", () => {
+  const wallet = "0x1cc85742D0231973C801d69c9260A916E30510D5";
+  const contract = "0x3aFF086e8AAa7707b29ad88a9ebDf581d2d6Ef41";
+  const hash = "0xbf3e3a1cce0adf5b5f88a52c4a6d3952e42788f6093e8ffb84dfb0aae80ed0d0";
+  const deposit = { hash, from_address: wallet.toLowerCase(), to_address: contract, value: 13000000000000000, created_at: "2026-09-28T21:30:15Z" };
+  const history = [
+    { ...deposit, value: 0 },
+    { ...deposit, to_address: wallet },
+    { ...deposit, from_address: contract },
+    deposit,
+    { ...deposit, from_address: wallet },
+  ];
+  assert.deepEqual(depositHistoryCandidates(history, wallet, contract), [{ hash, createdAt: deposit.created_at }]);
+  assert.throws(() => depositHistoryCandidates({}, wallet, contract), /invalid wallet activity/);
 });

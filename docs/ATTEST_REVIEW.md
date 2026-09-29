@@ -2,7 +2,7 @@
 
 **Status: live StudioNet release; settlement acceptance verified.** The contract is deployed and source-verified, the public app is hosted, and three synthetic test claims have finalized. The [acceptance journal](../deployments/attest_acceptance.json) records `all_checks_passed: true`; the independent read-only verifier also passed against StudioNet.
 
-**Deposit follow-up:** A reviewer-reported false “transaction has not finalized” message was reproduced from a successful deposit receipt. The [finality fix and wallet-credit recovery steps](ATTEST_FINALITY_FIX.md) explain the SDK field mismatch and the updated app behavior. The reviewer's specific transaction could not be checked without its hash or wallet address.
+**Deposit follow-up:** A reviewer-reported false “transaction has not finalized” message was reproduced from a successful deposit receipt. The [finality fix and wallet-credit recovery steps](ATTEST_FINALITY_FIX.md) explain the SDK field mismatch and the updated app behavior. Connecting the depositing wallet now discovers its ATTEST deposits and current credit without entering a hash. The reviewer's specific transaction cannot be checked externally without at least their wallet address.
 
 ## Open and inspect
 
@@ -13,7 +13,7 @@
 - [Contract source](../contracts/attest.py), [architecture and limitations](architecture/attest.md), and [submission entry](ATTEST_SUBMISSION.md)
 - [Deployment record](../deployments/attest_studionet.json), [hosting manifest](../deployments/attest_vercel.json), and [acceptance journal](../deployments/attest_acceptance.json)
 
-The deployment transaction `0xf5c34952c7d8736efe04738d35b8d04728017f72423cda0949b0812c7852bb12` finalized with successful execution. The deployed Python source and contract configuration match the release source. The source SHA-256 is `9f74091b114516fb59c5980f8a094bd1359b6f6ea73a6af58104fc8d48b4e83c`. The production Vercel deployment `dpl_7NScGtBFKPYmPUvVfybTYdGrZVut` is READY. The public page, fixture URLs, contract link, live docket, and claim-ID deep link were verified without a wallet. The app no longer flashes sample docket rows while its live query loads.
+The deployment transaction `0xf5c34952c7d8736efe04738d35b8d04728017f72423cda0949b0812c7852bb12` finalized with successful execution. The deployed Python source and contract configuration match the release source. The source SHA-256 is `9f74091b114516fb59c5980f8a094bd1359b6f6ea73a6af58104fc8d48b4e83c`. The production Vercel deployment `dpl_Eo83jo4w4yJtG3oUViDb6Zcsvay6` is READY. The public page, fixture URLs, contract link, live docket, and claim-ID deep link were verified without a wallet. The app no longer flashes sample docket rows while its live query loads.
 
 ## Why GenLayer is essential
 
@@ -43,4 +43,4 @@ The [DISPROVEN resolution](https://explorer-studio.genlayer.com/tx/0xa88a5875876
 - This version allows one challenger, one author response, and no application-level appeal. GenLayer's protocol appeals are distinct from product-level reassessment.
 - A deposited balance is recoverable credit, not a claim. The user must separately sign the zero-value posting transaction and later withdraw unused credit.
 - This is a StudioNet test-currency demonstration. Fee-charging network policy and fee profiling are not implemented or measured, and the hosted wallet-signing path has not been exercised with a browser extension in this acceptance run.
-- No external submission form has been sent automatically.
+- The portal submission and reviewer reply are managed in the user's account.

@@ -1,6 +1,6 @@
 # ATTEST — Project Explorer submission
 
-Use these fields for the GenLayer Project Explorer form. The contribution date should match the day the form is actually sent; 29/09/2026 is the date for this prepared entry. No portal submission has been sent.
+Use these fields for the GenLayer Project Explorer form and its reviewer follow-up. The contribution date should match the day the form was actually sent; 29/09/2026 is the date for this prepared entry. The portal submission and reviewer reply are managed in the user's account.
 
 ## 1. Project identity
 
