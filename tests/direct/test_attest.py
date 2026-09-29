@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 import pytest
 
 
-NOW = 2_000_000_000
 BOND = 4 * 10**15
 AUTHOR_URL = "https://example.org/attest-primary"
 CHALLENGE_URL = "https://example.net/attest-challenge"
@@ -22,8 +21,11 @@ def warp(vm, timestamp):
     vm.warp(datetime.fromtimestamp(timestamp, timezone.utc).isoformat())
 
 
+def review_deadline(contract, claim_id):
+    return int(contract.get_claim(claim_id)["challenge_deadline"])
+
+
 def create(vm, deploy, author, bond=BOND, source_url=AUTHOR_URL):
-    warp(vm, NOW)
     contract = deploy("contracts/attest.py")
     vm.sender = author
     vm.value = bond
@@ -73,7 +75,7 @@ def test_conclusive_settlement_is_exact_and_validator_checks_evidence(
 ):
     contract, claim_id = create(direct_vm, direct_deploy, direct_alice)
     counterbond = challenge(direct_vm, contract, claim_id, direct_bob)
-    warp(direct_vm, NOW + 3600)
+    warp(direct_vm, review_deadline(contract, claim_id) + 1)
     evidence(direct_vm, outcome)
     contract.resolve(claim_id)
     assert direct_vm.run_validator()
@@ -100,7 +102,7 @@ def test_uncontested_refund_does_not_claim_independent_verification(direct_vm, d
     contract, claim_id = create(direct_vm, direct_deploy, direct_alice)
     with pytest.raises(Exception, match="still open"):
         contract.finalize_uncontested(claim_id)
-    warp(direct_vm, NOW + 3600)
+    warp(direct_vm, review_deadline(contract, claim_id) + 1)
     contract.finalize_uncontested(claim_id)
     assert contract.get_claim(claim_id)["outcome"] == "UNCONTESTED"
     assert int(contract.get_credit(address(direct_alice))) == BOND
@@ -110,7 +112,7 @@ def test_uncontested_refund_does_not_claim_independent_verification(direct_vm, d
 def test_inconclusive_returns_each_bond(direct_vm, direct_deploy, direct_alice, direct_bob):
     contract, claim_id = create(direct_vm, direct_deploy, direct_alice)
     counterbond = challenge(direct_vm, contract, claim_id, direct_bob)
-    warp(direct_vm, NOW + 3600)
+    warp(direct_vm, review_deadline(contract, claim_id) + 1)
     direct_vm.mock_web(AUTHOR_URL, {"status": 503, "body": ""})
     direct_vm.mock_web(CHALLENGE_URL, {"status": 503, "body": ""})
     contract.resolve(claim_id)
@@ -125,7 +127,7 @@ def test_timeout_refunds_disputed_bonds_without_a_model_decision(direct_vm, dire
     counterbond = challenge(direct_vm, contract, claim_id, direct_bob)
     with pytest.raises(Exception, match="timeout has not elapsed"):
         contract.expire_challenged(claim_id)
-    warp(direct_vm, NOW + 3600 + 7 * 86400)
+    warp(direct_vm, review_deadline(contract, claim_id) + 7 * 86400 + 1)
     with pytest.raises(Exception, match="adjudication period expired"):
         contract.resolve(claim_id)
     direct_vm.sender = direct_bob
@@ -142,7 +144,7 @@ def test_timeout_refunds_disputed_bonds_without_a_model_decision(direct_vm, dire
 def test_oversize_source_cannot_support_a_conclusive_result(direct_vm, direct_deploy, direct_alice, direct_bob):
     contract, claim_id = create(direct_vm, direct_deploy, direct_alice)
     challenge(direct_vm, contract, claim_id, direct_bob)
-    warp(direct_vm, NOW + 3600)
+    warp(direct_vm, review_deadline(contract, claim_id) + 1)
     direct_vm.mock_web(AUTHOR_URL, {"status": 200, "body": "A" * 6001})
     direct_vm.mock_web(CHALLENGE_URL, {"status": 503, "body": ""})
     contract.resolve(claim_id)
@@ -155,7 +157,7 @@ def test_oversize_source_cannot_support_a_conclusive_result(direct_vm, direct_de
 def test_validator_rejects_a_changed_source_even_with_same_outcome(direct_vm, direct_deploy, direct_alice, direct_bob):
     contract, claim_id = create(direct_vm, direct_deploy, direct_alice)
     challenge(direct_vm, contract, claim_id, direct_bob)
-    warp(direct_vm, NOW + 3600)
+    warp(direct_vm, review_deadline(contract, claim_id) + 1)
     evidence(direct_vm)
     contract.resolve(claim_id)
     direct_vm.clear_mocks()
@@ -171,7 +173,7 @@ def test_challenge_inputs_and_deadlines_fail_closed(direct_vm, direct_deploy, di
     direct_vm.sender = direct_bob
     with pytest.raises(Exception, match="insufficient available credit"):
         contract.challenge(claim_id, "I dispute this October recipient count.", json.dumps([CHALLENGE_URL]))
-    warp(direct_vm, NOW + 3600)
+    warp(direct_vm, review_deadline(contract, claim_id) + 1)
     with pytest.raises(Exception, match="not accepting challenges"):
         contract.challenge(claim_id, "I dispute this October recipient count.", json.dumps([CHALLENGE_URL]))
 
