@@ -275,6 +275,9 @@ export async function writeContract(
     const receipt = await readClient.waitForTransactionReceipt({
       hash: hash as never, status: TransactionStatus.FINALIZED, retries: 120,
     });
+    if (transactionStatus(receipt) !== TransactionStatus.FINALIZED) {
+      throw new Error("The transaction has not finalized. Check the saved transaction before sending another.");
+    }
     try {
       assertSuccessfulExecution(receipt);
     } finally {
@@ -289,8 +292,7 @@ export async function reconcilePendingTransaction(session: WalletSession): Promi
   const pending = getPendingTransaction(session.address);
   if (!pending) return { done: true, successful: false, message: "No pending transaction is saved." };
   const receipt = await readClient.getTransaction({ hash: pending.hash as never });
-  const tx = object(receipt);
-  const status = String(tx.statusName ?? tx.status ?? "").toUpperCase();
+  const status = transactionStatus(receipt);
   if (status === "UNDETERMINED" || status === "CANCELED" || status === "CANCELLED") {
     clearPendingTransaction(session.address);
     return { done: true, successful: false, message: "The transaction ended without successful execution (" + status + ").", hash: pending.hash };
@@ -314,9 +316,17 @@ function object(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function assertSuccessfulExecution(receipt: unknown): void {
+export function transactionStatus(receipt: unknown): string {
   const tx = object(receipt);
-  if (String(tx.statusName ?? tx.status ?? "").toUpperCase() !== TransactionStatus.FINALIZED) {
+  // The SDK returns status_name for waited/simplified StudioNet receipts and
+  // statusName for getTransaction. status itself is the numeric lifecycle code.
+  const status = tx.status_name ?? tx.statusName ?? tx.status;
+  return typeof status === "string" ? status.toUpperCase() : "";
+}
+
+export function assertSuccessfulExecution(receipt: unknown): void {
+  const tx = object(receipt);
+  if (transactionStatus(receipt) !== TransactionStatus.FINALIZED) {
     throw new Error("The transaction has not finalized.");
   }
   const consensus = object(tx.consensus_data ?? tx.consensusData);

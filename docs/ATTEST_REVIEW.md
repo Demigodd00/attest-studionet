@@ -2,6 +2,8 @@
 
 **Status: live StudioNet release; settlement acceptance verified.** The contract is deployed and source-verified, the public app is hosted, and three synthetic test claims have finalized. The [acceptance journal](../deployments/attest_acceptance.json) records `all_checks_passed: true`; the independent read-only verifier also passed against StudioNet.
 
+**Deposit follow-up:** A reviewer-reported false “transaction has not finalized” message was reproduced from a successful deposit receipt. The [finality fix and wallet-credit recovery steps](ATTEST_FINALITY_FIX.md) explain the SDK field mismatch and the updated app behavior. The reviewer's specific transaction could not be checked without its hash or wallet address.
+
 ## Open and inspect
 
 - [Live app](https://attest-web-silk.vercel.app) and [contract explorer](https://explorer-studio.genlayer.com/address/0x3aFF086e8AAa7707b29ad88a9ebDf581d2d6Ef41)
@@ -11,7 +13,7 @@
 - [Contract source](../contracts/attest.py), [architecture and limitations](architecture/attest.md), and [submission entry](ATTEST_SUBMISSION.md)
 - [Deployment record](../deployments/attest_studionet.json), [hosting manifest](../deployments/attest_vercel.json), and [acceptance journal](../deployments/attest_acceptance.json)
 
-The deployment transaction `0xf5c34952c7d8736efe04738d35b8d04728017f72423cda0949b0812c7852bb12` finalized with successful execution. The deployed Python source and contract configuration match the release source. The source SHA-256 is `9f74091b114516fb59c5980f8a094bd1359b6f6ea73a6af58104fc8d48b4e83c`. The production Vercel deployment `dpl_3XxhbbNNhAKFUyRrijuqV5va4px6` is READY. The public page, fixture URLs, contract link, live docket, and claim-ID deep link were verified without a wallet. The app no longer flashes sample docket rows while its live query loads.
+The deployment transaction `0xf5c34952c7d8736efe04738d35b8d04728017f72423cda0949b0812c7852bb12` finalized with successful execution. The deployed Python source and contract configuration match the release source. The source SHA-256 is `9f74091b114516fb59c5980f8a094bd1359b6f6ea73a6af58104fc8d48b4e83c`. The production Vercel deployment `dpl_7NScGtBFKPYmPUvVfybTYdGrZVut` is READY. The public page, fixture URLs, contract link, live docket, and claim-ID deep link were verified without a wallet. The app no longer flashes sample docket rows while its live query loads.
 
 ## Why GenLayer is essential
 

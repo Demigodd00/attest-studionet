@@ -544,6 +544,7 @@ export default function AttestApp() {
   const [session, setSession] = useState<WalletSession | null>(null);
   const [pending, setPending] = useState<PendingTransaction | null>(null);
   const [credit, setCredit] = useState("0");
+  const [creditStatus, setCreditStatus] = useState<"loading" | "ready" | "error">("loading");
   const [activeTab, setActiveTab] = useState("All claims");
   const [lookupId, setLookupId] = useState("");
   const [selectedId, setSelectedId] = useState("");
@@ -614,12 +615,26 @@ export default function AttestApp() {
   useEffect(() => {
     if (!session || !CONTRACT_READY) {
       setCredit("0");
+      setCreditStatus("loading");
       setPending(null);
       return;
     }
-    getCredit(session.address as Address).then(setCredit).catch(() => setCredit("0"));
+    let active = true;
+    setCreditStatus("loading");
+    getCredit(session.address as Address).then((value) => {
+      if (active) {
+        setCredit(value);
+        setCreditStatus("ready");
+      }
+    }).catch((reason: unknown) => {
+      if (active) {
+        setCreditStatus("error");
+        setError(reason instanceof Error ? reason.message : "Could not read available GEN credit.");
+      }
+    });
     try { setPending(getPendingTransaction(session.address)); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Could not read the saved transaction."); }
+    return () => { active = false; };
   }, [session]);
 
   const selectedSummary = useMemo(() => claims.find((claim) => claim.id === selectedId) ?? null, [claims, selectedId]);
@@ -654,7 +669,27 @@ export default function AttestApp() {
     setClaims(page.items);
     setTotalClaims(page.total);
     setStats(nextStats);
-    if (session) setCredit(await getCredit(session.address as Address));
+    if (session) {
+      setCredit(await getCredit(session.address as Address));
+      setCreditStatus("ready");
+    }
+  }
+
+  async function refreshCredit() {
+    if (!session) return;
+    setBusy(true);
+    setCreditStatus("loading");
+    try {
+      setCredit(await getCredit(session.address as Address));
+      setCreditStatus("ready");
+      setError("");
+      setNotice({ tone: "success", text: "Available credit refreshed from finalized StudioNet state." });
+    } catch (reason) {
+      setCreditStatus("error");
+      setError(reason instanceof Error ? reason.message : "Could not refresh available GEN credit.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function loadMore() {
@@ -768,6 +803,7 @@ export default function AttestApp() {
 
   async function depositCredit(amount: bigint) {
     if (!session) throw new Error("Connect your wallet before adding GEN credit.");
+    if (creditStatus !== "ready") throw new Error("Check your available contract credit before adding more GEN.");
     if (amount <= 0n) throw new Error("Enter an amount greater than zero.");
     await transaction("Adding recoverable GEN credit", "deposit", [], amount);
     setCredit(await getCredit(session.address));
@@ -832,11 +868,6 @@ export default function AttestApp() {
           </nav>
           <div className="wallet-actions">
             {pending ? <button className="credit-button" type="button" onClick={() => void checkPending()} disabled={busy}>Check pending transaction ↗</button> : null}
-            {session && CONTRACT_READY && BigInt(credit || "0") > 0n ? (
-              <button className="credit-button" type="button" onClick={() => void withdraw()} disabled={busy}>
-                {formatGen(credit)} GEN <span>Withdraw</span>
-              </button>
-            ) : null}
             <button className={"wallet-button " + (session ? "wallet-connected" : "")} type="button" onClick={() => void connect()}>
               <span className="wallet-indicator" />{session ? shortenAddress(session.address) : "Connect wallet"}
             </button>
@@ -849,6 +880,14 @@ export default function AttestApp() {
           <span>Test GEN has no monetary value</span>
           {CONTRACT_READY ? <a href={EXPLORER_URL} target="_blank" rel="noreferrer">View contract ↗</a> : <span className="preview-chip">SAMPLE RECORDS</span>}
         </div>
+
+        {session && CONTRACT_READY ? (
+          <div className="account-credit" aria-label="Wallet credit">
+            <span>Available contract credit <strong>{creditStatus === "ready" ? formatGen(credit, 18) + " GEN" : creditStatus === "loading" ? "Checking StudioNet…" : "Unavailable"}</strong></span>
+            <button type="button" onClick={() => void refreshCredit()} disabled={busy}>Refresh credit ↻</button>
+            {creditStatus === "ready" && BigInt(credit || "0") > 0n ? <button type="button" onClick={() => void withdraw()} disabled={busy}>Withdraw credit ↗</button> : null}
+          </div>
+        ) : null}
 
         {error ? <div className="error-banner" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")}>Dismiss</button></div> : null}
 

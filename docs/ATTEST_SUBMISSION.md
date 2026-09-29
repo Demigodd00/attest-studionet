@@ -67,5 +67,6 @@ Use **Add Evidence** for each URL separately, in this order:
 5. **Deployed contract:** [StudioNet explorer](https://explorer-studio.genlayer.com/address/0x3aFF086e8AAa7707b29ad88a9ebDf581d2d6Ef41)
 6. **Working application:** [Public ATTEST app](https://attest-web-silk.vercel.app)
 7. **Read-only release verifier:** [ATTEST verification script](../scripts/check_attest_release.py)
+8. **Reviewer deposit/finality follow-up:** [Fix explanation and recovery steps](ATTEST_FINALITY_FIX.md)
 
 The demo evidence is synthetic and project-controlled; do not describe it as proof of an independent real-world event. The hosted browser-wallet signing path, a live SUPPORTED claim, and the seven-day timeout were not exercised in this acceptance run.
